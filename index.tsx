@@ -4,7 +4,7 @@ import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { 
   Upload, Image as ImageIcon, Copy, RefreshCw, Wand2, Settings, 
   Loader2, Sparkles, Languages, Shirt, Camera, Layers, Download, Globe,
-  Sun, Moon, Clipboard, Check, ChevronRight
+  Sun, Moon, Clipboard, Check, ChevronRight, Trash2
 } from "lucide-react";
 
 // --- Styles ---
@@ -139,14 +139,17 @@ body {
 /* Main Grid */
 .content-grid {
   display: grid;
-  grid-template-columns: 480px 1fr; /* Widened left column slightly */
+  grid-template-columns: 420px 520px; /* Narrower and fixed width columns */
+  justify-content: center; /* Center the grid */
   gap: 2rem;
   align-items: stretch; /* Forces equal height */
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   .content-grid {
     grid-template-columns: 1fr;
+    max-width: 600px;
+    margin: 0 auto;
   }
 }
 
@@ -163,6 +166,7 @@ body {
   transition: transform 0.2s, box-shadow 0.2s;
   height: 100%; /* Fill the grid area */
   box-sizing: border-box;
+  position: relative;
 }
 
 .card-title {
@@ -348,6 +352,13 @@ body {
 .action-sm:hover {
   background: var(--border);
   color: var(--text-main);
+  border-color: var(--text-sub);
+}
+
+.action-sm.danger:hover {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 /* Studio Specific */
@@ -386,15 +397,20 @@ body {
   background: #000;
   border-radius: 12px;
   overflow: hidden;
+  border: 1px solid var(--border);
+  flex: 1; /* Fill height */
+  min-height: 400px; /* Baseline height */
+  position: relative; /* For absolute image positioning */
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border);
-  flex: 1; /* Fill height */
-  min-height: 400px;
 }
 
+/* Using absolute positioning to prevent image from stretching container height */
 .generated-img {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -407,6 +423,7 @@ body {
   gap: 1rem;
   color: var(--text-sub);
   opacity: 0.5;
+  z-index: 1; /* Ensure text is above if needed */
 }
 
 /* Two column upload row */
@@ -414,6 +431,12 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
+}
+
+.hint-text {
+  font-size: 0.8rem;
+  color: var(--text-sub);
+  margin-top: -4px;
 }
 `;
 
@@ -445,6 +468,7 @@ const translations = {
     btn_create: "Generate Studio Shot",
     result_studio: "Studio Result",
     btn_download: "Download",
+    btn_clear: "Clear",
     
     // Backgrounds
     bg_zen: "Zen Garden (Stone/Water)",
@@ -457,9 +481,13 @@ const translations = {
     bg_water_dark: "Dark Water Ripple (Moody)",
     bg_sand: "Desert Sand (Organic)",
     bg_ceramic: "White Ceramic (Minimalist)",
+    bg_window: "Window Shadow (Linen/Cloth)",
+    bg_screen: "Antique Screen & Bonsai",
+    bg_glass: "Diffused Glass & Stone",
 
     analyzing: "Analyzing...",
     creating: "Rendering...",
+    fashion_default_bg: "Default Studio (Custom BG coming soon)",
   },
   zh: {
     app_name: "AI 创意工坊",
@@ -487,6 +515,7 @@ const translations = {
     btn_create: "生成商业大片",
     result_studio: "成图结果",
     btn_download: "保存图片",
+    btn_clear: "清空",
     
     // Backgrounds
     bg_zen: "禅意岩石与流水 (自然)",
@@ -499,9 +528,13 @@ const translations = {
     bg_water_dark: "暗调水波纹 (高级黑)",
     bg_sand: "大漠流沙纹理 (有机)",
     bg_ceramic: "纯白陶瓷质感 (极简)",
+    bg_window: "窗边柔光与亚麻布 (生活感)",
+    bg_screen: "古风屏风与盆景 (古典)",
+    bg_glass: "朦胧磨砂玻璃与石材 (现代)",
 
     analyzing: "深度分析中...",
     creating: "正在渲染高清图...",
+    fashion_default_bg: "默认影棚 (自定义背景开发中)",
   }
 };
 
@@ -524,14 +557,18 @@ const App = () => {
   const [promptResult, setPromptResult] = useState("");
   const [promptMode, setPromptMode] = useState("doubao-jimeng");
 
-  // Studio
+  // Studio - Product
   const [studioType, setStudioType] = useState<'product' | 'fashion'>('product');
+  const [productBg, setProductBg] = useState("zen");
+  const [productDetails, setProductDetails] = useState("");
+  
+  // Studio - Fashion
   const [file2, setFile2] = useState<File | null>(null); 
   const [preview2, setPreview2] = useState<string | null>(null);
   const [base64_2, setBase64_2] = useState<string | null>(null);
+  const [fashionDetails, setFashionDetails] = useState("");
+
   const [studioResult, setStudioResult] = useState<string | null>(null);
-  const [studioPrompt, setStudioPrompt] = useState("");
-  const [bgStyle, setBgStyle] = useState("zen");
 
   const ref1 = useRef<HTMLInputElement>(null);
   const ref2 = useRef<HTMLInputElement>(null);
@@ -573,6 +610,10 @@ const App = () => {
   const reset = (slot: 1 | 2) => {
     if (slot === 1) { setFile1(null); setPreview1(null); setBase64_1(null); setPromptResult(""); }
     else { setFile2(null); setPreview2(null); setBase64_2(null); }
+  };
+
+  const clearResult = () => {
+    setStudioResult(null);
   };
 
   const generatePrompt = async () => {
@@ -624,13 +665,20 @@ const App = () => {
         "podium": "a minimalist geometric podium scene. Pastel tones (soft pink, mint, or blue), clean architectural shapes, soft studio lighting. Modern product display.",
         "water_dark": "a moody, high-end dark water surface. Deep black/blue reflection, ripples, dramatic rim lighting. Premium luxury vibe.",
         "sand": "an organic desert sand texture background. Warm golden dunes, natural grain details, soft sunset lighting. Earthy and raw.",
-        "ceramic": "a pure white unglazed ceramic texture background. Minimalist, clean, matte finish, soft shadows. High-key art gallery aesthetic."
+        "ceramic": "a pure white unglazed ceramic texture background. Minimalist, clean, matte finish, soft shadows. High-key art gallery aesthetic.",
+        "window": "a cozy window-side setting with beige linen cloth and dappled soft sunlight shadows. Lifestyle product photography, warm and natural.",
+        "screen": "a classical Chinese setting with an antique wooden screen and a small bonsai tree. Elegant, culturally rich, sophisticated background.",
+        "glass": "a modern composition with frosted glass blocks and rough grey stone. Soft diffused lighting, contemporary art style."
       };
 
       const parts: any[] = [];
-      const prompt = studioType === 'product' 
-        ? `Generate a high-end commercial product image. Input Image 1 is the product. Place it into ${bgPrompts[bgStyle]}. Ensure correct lighting/shadows. Context: ${studioPrompt}`
-        : `High-fashion commercial shot. Image 1 is model, Image 2 is clothing. Create image of model wearing outfit in ${bgPrompts[bgStyle]}. Pose: Professional. Context: ${studioPrompt}`;
+      let prompt = "";
+
+      if (studioType === 'product') {
+         prompt = `Generate a high-end commercial product image. Input Image 1 is the product. Place it into ${bgPrompts[productBg]}. Ensure correct lighting/shadows. Context: ${productDetails}`;
+      } else {
+         prompt = `High-fashion commercial shot. Image 1 is model, Image 2 is clothing. Create image of model wearing outfit in a professional studio setting. Pose: Professional. Context: ${fashionDetails}`;
+      }
 
       parts.push({ text: prompt });
       parts.push({ inlineData: { mimeType: file1?.type || "image/png", data: base64_1 } });
@@ -764,28 +812,10 @@ const App = () => {
 
               {/* Dynamic Uploader Section */}
               {studioType === 'product' ? (
-                <div className="form-group">
-                  <label className="label">{t('lbl_product')}</label>
-                  <div 
-                    className={`uploader ${preview1 ? 'has-file' : ''}`} 
-                    onClick={() => ref1.current?.click()}
-                    onPaste={(e) => handlePaste(e, 1)}
-                    tabIndex={0}
-                    style={{minHeight: '200px'}}
-                  >
-                    <input type="file" ref={ref1} style={{display:'none'}} accept="image/*" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0], 1)} />
-                    {preview1 ? (
-                      <>
-                        <img src={preview1} className="preview-img" />
-                        <button className="reset-btn" onClick={(e) => { e.stopPropagation(); reset(1); }}>Reset</button>
-                      </>
-                    ) : <div className="upload-hint"><Upload size={24} /><span>{t('upload_hint')}</span></div>}
-                  </div>
-                </div>
-              ) : (
-                <div className="upload-row">
+                // Product Mode Inputs
+                <>
                   <div className="form-group">
-                    <label className="label">{t('lbl_model')}</label>
+                    <label className="label">{t('lbl_product')}</label>
                     <div 
                       className={`uploader ${preview1 ? 'has-file' : ''}`} 
                       onClick={() => ref1.current?.click()}
@@ -802,52 +832,91 @@ const App = () => {
                       ) : <div className="upload-hint"><Upload size={24} /><span>{t('upload_hint')}</span></div>}
                     </div>
                   </div>
-                  
+
                   <div className="form-group">
-                    <label className="label">{t('lbl_garment')}</label>
-                    <div 
-                      className={`uploader ${preview2 ? 'has-file' : ''}`} 
-                      onClick={() => ref2.current?.click()}
-                      onPaste={(e) => handlePaste(e, 2)}
-                      tabIndex={0}
-                      style={{minHeight: '200px'}}
-                    >
-                      <input type="file" ref={ref2} style={{display:'none'}} accept="image/*" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0], 2)} />
-                      {preview2 ? (
-                        <>
-                          <img src={preview2} className="preview-img" />
-                          <button className="reset-btn" onClick={(e) => { e.stopPropagation(); reset(2); }}>Reset</button>
-                        </>
-                      ) : <div className="upload-hint"><Shirt size={24} /><span>{t('upload_hint')}</span></div>}
+                    <label className="label">{t('bg_style')}</label>
+                    <select className="select" value={productBg} onChange={(e) => setProductBg(e.target.value)}>
+                        <optgroup label="Nature & Zen (自然禅意)">
+                          <option value="zen">{t('bg_zen')}</option>
+                          <option value="wood">{t('bg_wood')}</option>
+                          <option value="window">{t('bg_window')}</option>
+                          <option value="screen">{t('bg_screen')}</option>
+                          <option value="sand">{t('bg_sand')}</option>
+                          <option value="nature">{t('bg_nature')}</option>
+                        </optgroup>
+                        <optgroup label="Modern & Premium (现代高级)">
+                          <option value="paper">{t('bg_paper')}</option>
+                          <option value="ceramic">{t('bg_ceramic')}</option>
+                          <option value="glass">{t('bg_glass')}</option>
+                          <option value="silk">{t('bg_silk')}</option>
+                          <option value="water_dark">{t('bg_water_dark')}</option>
+                          <option value="podium">{t('bg_podium')}</option>
+                          <option value="oriental">{t('bg_oriental')}</option>
+                        </optgroup>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="label">Details</label>
+                    <input className="input" placeholder={t('details_ph')} value={productDetails} onChange={(e) => setProductDetails(e.target.value)} />
+                  </div>
+                </>
+              ) : (
+                // Fashion Mode Inputs
+                <>
+                  <div className="upload-row">
+                    <div className="form-group">
+                      <label className="label">{t('lbl_model')}</label>
+                      <div 
+                        className={`uploader ${preview1 ? 'has-file' : ''}`} 
+                        onClick={() => ref1.current?.click()}
+                        onPaste={(e) => handlePaste(e, 1)}
+                        tabIndex={0}
+                        style={{minHeight: '200px'}}
+                      >
+                        <input type="file" ref={ref1} style={{display:'none'}} accept="image/*" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0], 1)} />
+                        {preview1 ? (
+                          <>
+                            <img src={preview1} className="preview-img" />
+                            <button className="reset-btn" onClick={(e) => { e.stopPropagation(); reset(1); }}>Reset</button>
+                          </>
+                        ) : <div className="upload-hint"><Upload size={24} /><span>{t('upload_hint')}</span></div>}
+                      </div>
+                    </div>
+                    
+                    <div className="form-group">
+                      <label className="label">{t('lbl_garment')}</label>
+                      <div 
+                        className={`uploader ${preview2 ? 'has-file' : ''}`} 
+                        onClick={() => ref2.current?.click()}
+                        onPaste={(e) => handlePaste(e, 2)}
+                        tabIndex={0}
+                        style={{minHeight: '200px'}}
+                      >
+                        <input type="file" ref={ref2} style={{display:'none'}} accept="image/*" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0], 2)} />
+                        {preview2 ? (
+                          <>
+                            <img src={preview2} className="preview-img" />
+                            <button className="reset-btn" onClick={(e) => { e.stopPropagation(); reset(2); }}>Reset</button>
+                          </>
+                        ) : <div className="upload-hint"><Shirt size={24} /><span>{t('upload_hint')}</span></div>}
+                      </div>
                     </div>
                   </div>
-                </div>
+
+                  <div className="form-group">
+                    <label className="label">{t('bg_style')}</label>
+                    <select className="select" disabled>
+                        <option>{t('fashion_default_bg')}</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="label">Details</label>
+                    <input className="input" placeholder={t('details_ph')} value={fashionDetails} onChange={(e) => setFashionDetails(e.target.value)} />
+                  </div>
+                </>
               )}
-
-              <div className="form-group">
-                 <label className="label">{t('bg_style')}</label>
-                 <select className="select" value={bgStyle} onChange={(e) => setBgStyle(e.target.value)}>
-                    <optgroup label="Nature & Zen">
-                      <option value="zen">{t('bg_zen')}</option>
-                      <option value="wood">{t('bg_wood')}</option>
-                      <option value="sand">{t('bg_sand')}</option>
-                      <option value="nature">{t('bg_nature')}</option>
-                    </optgroup>
-                    <optgroup label="Modern & Premium">
-                      <option value="paper">{t('bg_paper')}</option>
-                      <option value="ceramic">{t('bg_ceramic')}</option>
-                      <option value="silk">{t('bg_silk')}</option>
-                      <option value="water_dark">{t('bg_water_dark')}</option>
-                      <option value="podium">{t('bg_podium')}</option>
-                      <option value="oriental">{t('bg_oriental')}</option>
-                    </optgroup>
-                 </select>
-              </div>
-
-              <div className="form-group">
-                <label className="label">Details</label>
-                <input className="input" placeholder={t('details_ph')} value={studioPrompt} onChange={(e) => setStudioPrompt(e.target.value)} />
-              </div>
 
                <button className="btn-primary" disabled={loading || !base64_1 || (studioType === 'fashion' && !base64_2)} onClick={generateStudio}>
                 {loading ? <Loader2 className="animate-spin"/> : <Sparkles />} {t('btn_create')}
@@ -858,11 +927,18 @@ const App = () => {
            <div className="card">
               <div className="result-header">
                 <h3 className="card-title"><Layers size={20}/> {t('result_studio')}</h3>
-                {studioResult && (
-                  <a href={studioResult} download="studio-shot.png" className="action-sm" style={{textDecoration:'none'}}>
-                    <Download size={14}/> {t('btn_download')}
-                  </a>
-                )}
+                <div style={{display:'flex', gap:'8px'}}>
+                  {studioResult && (
+                    <>
+                      <button className="action-sm danger" onClick={clearResult}>
+                        <Trash2 size={14}/> {t('btn_clear')}
+                      </button>
+                      <a href={studioResult} download="studio-shot.png" className="action-sm" style={{textDecoration:'none'}}>
+                        <Download size={14}/> {t('btn_download')}
+                      </a>
+                    </>
+                  )}
+                </div>
               </div>
               <div className="generated-container">
                 {loading ? (
